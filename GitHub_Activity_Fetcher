@@ -1,0 +1,90 @@
+import sys
+import json
+import urllib.request
+import urllib.error
+
+# Function to fetch GitHub activity using the API
+def fetch_github_activity(username):
+    """
+    Fetch the recent activity of the given GitHub username.
+    Arguments:
+        username: GitHub username as a string.
+    Returns:
+        A list of activity events or an error message.
+    """
+    api_url = f"https://api.github.com/users/{username}/events"
+    try:
+        # Sending a GET request to the GitHub API
+        with urllib.request.urlopen(api_url) as response:
+            # Reading and decoding the JSON response
+            data = response.read().decode('utf-8')
+            events = json.loads(data)
+            return events
+    except urllib.error.HTTPError as e:
+        return f"HTTP Error {e.code}: {e.reason} for user {username}."
+    except urllib.error.URLError as e:
+        return f"Network Error: {e.reason}."
+    except json.JSONDecodeError:
+        return "Failed to parse the API response."
+
+# Function to parse and display activity events
+def display_activity(events):
+    """
+    Display the recent GitHub activity in a human-readable format.
+    Arguments:
+        events: List of activity events.
+    """
+    if isinstance(events, str):
+        # If events is a string, it contains an error message
+        print(events)
+        return
+
+    if not events:
+        print("No recent activity found.")
+        return
+
+    for event in events[:10]:  # Displaying up to 10 recent activities
+        event_type = event.get("type")
+        repo_name = event.get("repo", {}).get("name", "Unknown repository")
+        action_message = interpret_event(event_type, repo_name)
+        print(action_message)
+
+# Function to interpret event types and generate messages
+def interpret_event(event_type, repo_name):
+    """
+    Generate a user-friendly message based on the event type.
+    Arguments:
+        event_type: The type of the GitHub event.
+        repo_name: The repository name associated with the event.
+    Returns:
+        A string message describing the event.
+    """
+    if event_type == "PushEvent":
+        return f"Pushed commits to {repo_name}."
+    elif event_type == "IssuesEvent":
+        return f"Opened an issue in {repo_name}."
+    elif event_type == "WatchEvent":
+        return f"Starred {repo_name}."
+    elif event_type == "ForkEvent":
+        return f"Forked {repo_name}."
+    elif event_type == "PullRequestEvent":
+        return f"Opened a pull request in {repo_name}."
+    else:
+        return f"Performed {event_type} in {repo_name}."
+
+# Main function to handle CLI arguments and run the application
+def main():
+    """
+    Entry point of the application. Handles CLI arguments and executes the logic.
+    """
+    if len(sys.argv) != 2:
+        print("Usage: github-activity <username>")
+        sys.exit(1)
+
+    username = sys.argv[1]
+    print(f"Fetching activity for GitHub user: {username}...")
+    events = fetch_github_activity(username)
+    display_activity(events)
+
+if __name__ == "__main__":
+    main()
