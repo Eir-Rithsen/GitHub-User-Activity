@@ -2,23 +2,39 @@ import sys
 import json
 import urllib.request
 import urllib.error
+import os
+import time
 
-# Function to fetch GitHub activity using the API
+CACHE_DIR = "./cache"
+CACHE_EXPIRY = 60 * 5  # Cache expiry in seconds (5 minutes)
+
+# Ensure cache directory exists
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
+
+
 def fetch_github_activity(username):
     """
-    Fetch the recent activity of the given GitHub username.
-    Arguments:
-        username: GitHub username as a string.
-    Returns:
-        A list of activity events or an error message.
+    Fetch recent activity of the given GitHub username.
+    Implements caching to reduce redundant API calls.
     """
+    cache_path = os.path.join(CACHE_DIR, f"{username}_events.json")
+    
+    # Check if cache exists and is valid
+    if os.path.exists(cache_path) and time.time() - os.path.getmtime(cache_path) < CACHE_EXPIRY:
+        with open(cache_path, 'r') as cache_file:
+            print("Loading cached data...")
+            return json.load(cache_file)
+
+    # Fetch data from GitHub API
     api_url = f"https://api.github.com/users/{username}/events"
     try:
-        # Sending a GET request to the GitHub API
         with urllib.request.urlopen(api_url) as response:
-            # Reading and decoding the JSON response
             data = response.read().decode('utf-8')
             events = json.loads(data)
+            # Cache the result
+            with open(cache_path, 'w') as cache_file:
+                json.dump(events, cache_file)
             return events
     except urllib.error.HTTPError as e:
         return f"HTTP Error {e.code}: {e.reason} for user {username}."
@@ -27,15 +43,29 @@ def fetch_github_activity(username):
     except json.JSONDecodeError:
         return "Failed to parse the API response."
 
-# Function to parse and display activity events
-def display_activity(events):
+
+def fetch_user_info(username):
     """
-    Display the recent GitHub activity in a human-readable format.
-    Arguments:
-        events: List of activity events.
+    Fetch additional information about the GitHub user.
+    """
+    api_url = f"https://api.github.com/users/{username}"
+    try:
+        with urllib.request.urlopen(api_url) as response:
+            data = response.read().decode('utf-8')
+            return json.loads(data)
+    except urllib.error.HTTPError as e:
+        return f"HTTP Error {e.code}: {e.reason} for user {username}."
+    except urllib.error.URLError as e:
+        return f"Network Error: {e.reason}."
+    except json.JSONDecodeError:
+        return "Failed to parse the API response."
+
+
+def display_activity(events, filter_type=None):
+    """
+    Display recent GitHub activity with optional filtering by event type.
     """
     if isinstance(events, str):
-        # If events is a string, it contains an error message
         print(events)
         return
 
@@ -43,21 +73,39 @@ def display_activity(events):
         print("No recent activity found.")
         return
 
-    for event in events[:10]:  # Displaying up to 10 recent activities
+    filtered_events = [event for event in events if filter_type is None or event.get("type") == filter_type]
+    if not filtered_events:
+        print(f"No activities found for the event type: {filter_type}")
+        return
+
+    print("\nRecent Activity:")
+    for event in filtered_events[:10]:  # Limit to 10 entries
         event_type = event.get("type")
         repo_name = event.get("repo", {}).get("name", "Unknown repository")
         action_message = interpret_event(event_type, repo_name)
-        print(action_message)
+        print(f"  - {action_message}")
 
-# Function to interpret event types and generate messages
+
+def display_user_info(user_info):
+    """
+    Display structured information about the user.
+    """
+    if isinstance(user_info, str):
+        print(user_info)
+        return
+
+    print("\nUser Information:")
+    print(f"  Name: {user_info.get('name', 'N/A')}")
+    print(f"  Bio: {user_info.get('bio', 'N/A')}")
+    print(f"  Public Repos: {user_info.get('public_repos', 0)}")
+    print(f"  Followers: {user_info.get('followers', 0)}")
+    print(f"  Following: {user_info.get('following', 0)}")
+    print(f"  Profile: {user_info.get('html_url', 'N/A')}")
+
+
 def interpret_event(event_type, repo_name):
     """
     Generate a user-friendly message based on the event type.
-    Arguments:
-        event_type: The type of the GitHub event.
-        repo_name: The repository name associated with the event.
-    Returns:
-        A string message describing the event.
     """
     if event_type == "PushEvent":
         return f"Pushed commits to {repo_name}."
@@ -72,19 +120,27 @@ def interpret_event(event_type, repo_name):
     else:
         return f"Performed {event_type} in {repo_name}."
 
-# Main function to handle CLI arguments and run the application
+
 def main():
     """
-    Entry point of the application. Handles CLI arguments and executes the logic.
+    Entry point of the application.
+    Handles CLI arguments and executes logic.
     """
-    if len(sys.argv) != 2:
-        print("Usage: github-activity <username>")
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("Usage: github-activity <username> [event_type]")
         sys.exit(1)
 
     username = sys.argv[1]
+    filter_type = sys.argv[2] if len(sys.argv) == 3 else None
+
     print(f"Fetching activity for GitHub user: {username}...")
+
+    user_info = fetch_user_info(username)
+    display_user_info(user_info)
+
     events = fetch_github_activity(username)
-    display_activity(events)
+    display_activity(events, filter_type)
+
 
 if __name__ == "__main__":
     main()
